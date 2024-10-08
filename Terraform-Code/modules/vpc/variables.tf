@@ -15,3 +15,4 @@ variable "web_subnet_name" {
     default = [ "web_pub_01","web_pub_02" ]
   
 }
+
