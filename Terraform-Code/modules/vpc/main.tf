@@ -12,7 +12,7 @@ resource "aws_vpc" "my_vpc" {
 }
 
 
-#subnet
+#subnet for web
 resource "aws_subnet" "websubnets" {
   vpc_id     = aws_vpc.my_vpc.id
   count = length(var.web_subnet_cidr)
@@ -21,6 +21,30 @@ resource "aws_subnet" "websubnets" {
   map_public_ip_on_launch = true
   tags = {
     Name = var.web_subnet_name[count.index]
+  }
+}
+
+#subnet for app
+resource "aws_subnet" "appsubnets" {
+  vpc_id     = aws_vpc.my_vpc.id
+  count = length(var.app_subnet_cidr)
+  cidr_block = var.app_subnet_cidr[count.index]
+  availability_zone = data.aws_availability_zones.available.name[count.index] 
+  
+  tags = {
+    Name = var.app_subnet_name[count.index]
+  }
+}
+
+#subnet for db
+resource "aws_subnet" "dbsubnets" {
+  vpc_id     = aws_vpc.my_vpc.id
+  count = length(var.db_subnet_cidr)
+  cidr_block = var.db_subnet_cidr[count.index]
+  availability_zone = data.aws_availability_zones.available.name[count.index] 
+  
+  tags = {
+    Name = var.db_subnet_name[count.index]
   }
 }
 
@@ -33,7 +57,27 @@ resource "aws_internet_gateway" "igw" {
   }
 }
 
-#routetable
+
+#natgateway for app subnet01 and elasticip 
+resource "aws_eip" "nat" {
+  count = length(var.app_subnet_cidr)
+  tags = {
+    Name = "my-nat-eip-${count.index + 1}"
+  }
+}
+
+resource "aws_nat_gateway" "nat" {
+  count         = length(var.app_subnet_cidr)
+  allocation_id = aws_eip.nat[count.index].id
+  subnet_id     = aws_subnet.websubnets[count.index].id
+
+  tags = {
+    Name = "my-nat-gateway-${count.index + 1}"
+  }
+}
+
+
+#routetable for web
 resource "aws_route_table" "web_rt" {
   vpc_id = aws_vpc.myvpc.id
 
@@ -45,9 +89,48 @@ resource "aws_route_table" "web_rt" {
 
 }
 
-#routtable associate
+# Create Route Tables for app Subnets
+resource "aws_route_table" "app_rt" {
+  count  = length(var.app_subnet_cidr)
+  vpc_id = aws_vpc.my_vpc.id
+
+  route {
+    cidr_block     = "0.0.0.0/0"
+    nat_gateway_id = aws_nat_gateway.nat[count.index].id
+  }
+
+  tags = {
+    Name = "my-app-rt-${count.index + 1}"
+  }
+}
+
+# Create Route Tables for DB Subnets (No Internet Access)
+resource "aws_route_table" "db_rt" {
+  count  = length(var.db_subnet_cidr)
+  vpc_id = aws_vpc.my_vpc.id
+
+  tags = {
+    Name = "my-db-rt-${count.index + 1}"
+  }
+}
+
+#routtable associate for web
 resource "aws_route_table_association" "web_rt_asso" {
   count = length(var.web_subnet_cidr)
-  subnet_id      = aws_subnet.subnets[count.index]
+  subnet_id      = aws_subnet.websubnets[count.index]
   route_table_id = aws_route_table.web_rt.id
+}
+
+# Associate each private route table with the corresponding private subnet
+resource "aws_route_table_association" "app_rt_asso" {
+  count          = length(var.app_subnet_cidr)
+  subnet_id      = aws_subnet.appsubnets[count.index].id
+  route_table_id = aws_route_table.app_rt[count.index].id
+}
+
+# Associate each private DB route table with the corresponding private DB subnet
+resource "aws_route_table_association" "db_rt_asso" {
+  count          = length(var.db_subnet_cidr)
+  subnet_id      = aws_subnet.dbsubnets[count.index].id
+  route_table_id = aws_route_table.db_rt[count.index].id
 }
