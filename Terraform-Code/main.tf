@@ -16,3 +16,18 @@ module "aws_iam_role" {
   bucket_arn =  module.s3.bucket_arns
   
 }
+
+module "security_groups" {
+  source = "./modules/sg"
+  vpc_id = module.vpc.vpc_id
+  
+}
+
+module "rds" {
+  source = "./modules/rds"
+  db_username = var.db_username
+  db_password = var.db_password
+  db_tier_sg_id = module.security_groups.db_tier_sg_id
+  db_subnet_name = module.vpc.db_subnet_name
+  
+}
